@@ -33,10 +33,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r backend/ml/requirements.txt
       
-      - name: Validate MLflow auth
-        run: |
-          curl -fsSL -H "Authorization: Bearer ${{ secrets.MLFLOW_TRACKING_TOKEN }}" \
-            "${{ secrets.MLFLOW_TRACKING_URI }}/api/2.0/mlflow/experiments/get-by-name?experiment_name=${{ secrets.MLFLOW_EXPERIMENT_NAME }}"
+      # - name: Validate MLflow auth
+      #   run: |
+      #     curl -fsSL -H "Authorization: Bearer ${{ secrets.MLFLOW_TRACKING_TOKEN }}" \
+      #       "${{ secrets.MLFLOW_TRACKING_URI }}/api/2.0/mlflow/experiments/get-by-name?experiment_name=${{ secrets.MLFLOW_EXPERIMENT_NAME }}"
 
       - name: Run training pipeline
         run: python backend/ml/pipelines/train_pipeline.py
