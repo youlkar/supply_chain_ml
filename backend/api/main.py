@@ -13,6 +13,23 @@ import logging
 from pydantic import BaseModel, Field
 import asyncio
 import json
+import importlib.util
+
+# ---- Build-time debug: print dependency sizes in Vercel build logs ----
+# Vercel sets VERCEL=1 in build/runtime. We also use a custom flag so you can turn it off.
+if os.environ.get("VERCEL") == "1" and os.environ.get("PRINT_DEP_SIZES") == "1":
+    try:
+        script_path = Path(__file__).resolve().parents[1] / "scripts" / "print_dep_sizes.py"
+        if not script_path.exists():
+            raise FileNotFoundError(f"{script_path} not found")
+
+        spec = importlib.util.spec_from_file_location("print_dep_sizes", script_path)
+        module = importlib.util.module_from_spec(spec)
+        assert spec and spec.loader
+        spec.loader.exec_module(module)
+        module.main()
+    except Exception as e:
+        print("Dependency size debug failed:", repr(e))
 
 app = FastAPI(title="SupplyLens AI Enterprise Engine")
 

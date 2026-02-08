@@ -4,14 +4,12 @@
         "src": "api/main.py",
         "use": "@vercel/python",
         "config": {
-          "maxLambdaSize": "50mb"
+          "maxLambdaSize": 50,
+          "excludeFiles": "{ml/artifacts/**,ml/data_gen/**,ml/data_gen/data/**,ml/data_gen/data_full/**,data/**,artifacts/**,storage/**,.venv/**,.zenml_artifacts/**,public/sample/**,**/*.csv,**/*.edi,**/*.pkl}"
         }
       }
     ],
     "routes": [
-      {
-        "src": "/(.*)",
-        "dest": "api/main.py"
-      }
+      { "src": "/(.*)", "dest": "api/main.py" }
     ]
   }
