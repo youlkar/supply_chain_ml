@@ -1,5 +1,17 @@
-from ml.train_lightgbm_basic import train_model
+import importlib.util
+from pathlib import Path
 import os
+
+MODULE_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "training"
+    / "train_lightgbm_basic.py"
+)
+spec = importlib.util.spec_from_file_location("train_lightgbm_basic", MODULE_PATH)
+train_lightgbm_basic = importlib.util.module_from_spec(spec)
+assert spec and spec.loader
+spec.loader.exec_module(train_lightgbm_basic)
+train_model = train_lightgbm_basic.train_model
 
 def main():
     data_path = os.environ.get(
