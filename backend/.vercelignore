@@ -1,22 +1,16 @@
-.vercelignore
+  # backend/.vercelignore
+  ml/artifacts/
+  ml/data_gen/data/
+  ml/data_gen/data_full/
+  ml/data_gen/supply_chain_ml_data.csv
 
-!ml/
-!ml/**/*.py
+  data/
+  artifacts/
+  storage/
+  .venv/
+  .zenml_artifacts/
+  public/sample/
 
-ml/artifacts/
-ml/data_gen/data/
-ml/artifacts/
-ml/data_gen/data_full/
-ml/data_gen/data/gold/*.csv
-ml/data_gen/data/silver/*.csv
-ml/data_gen/supply_chain_ml_data.csv
-
-artifacts/
-data/
-storage/
-.venv/
-.zenml_artifacts/
-*.pkl
-*.csv
-*.edi
-public/sample/
+  *.pkl
+  *.csv
+  *.edi
