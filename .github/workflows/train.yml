@@ -16,6 +16,7 @@ jobs:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       MODEL_OUTPUT_DIR: backend/ml/artifacts
+      TRAINING_DATA_PATH: backend/data_gen/supply_chain_ml_data.csv
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

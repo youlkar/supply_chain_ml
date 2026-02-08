@@ -14,8 +14,9 @@ spec.loader.exec_module(train_lightgbm_basic)
 train_model = train_lightgbm_basic.train_model
 
 def main():
+    repo_root = Path(__file__).resolve().parents[2]
     data_path = os.environ.get(
-        "TRAINING_DATA_PATH", "../data_gen/supply_chain_ml_data.csv"
+        "TRAINING_DATA_PATH", repo_root / "backend" / "data_gen" / "supply_chain_ml_data.csv"
     )
     model_output_dir = os.environ.get("MODEL_OUTPUT_DIR", "../artifacts")
     result = train_model(data_path, model_output_dir)
