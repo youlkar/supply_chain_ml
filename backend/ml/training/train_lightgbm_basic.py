@@ -15,7 +15,9 @@ from pathlib import Path
 ml_flow_uri = os.getenv(
     "MLFLOW_TRACKING_URI", "https://dagshub.com/youl1/supplylens_ml.mlflow"
 )
-ml_flow_exp = os.getenv("MLFLOW_EXPERIMENT_NAME", "supply_chain_lightgbm_three_way")
+ml_flow_exp = os.getenv("MLFLOW_EXPERIMENT_NAME")
+if not ml_flow_exp:
+    raise RuntimeError("MLFLOW_EXPERIMENT_NAME must be set (pass via git secrets).")
 
 mlflow.set_tracking_uri(ml_flow_uri)
 mlflow.set_experiment(ml_flow_exp)
