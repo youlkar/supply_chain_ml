@@ -1,0 +1,8 @@
+backend/data/
+backend/artifacts/
+backend/storage/
+backend/.venv/
+backend/.zenml_artifacts/
+*.pkl
+*.csv
+*.edi
