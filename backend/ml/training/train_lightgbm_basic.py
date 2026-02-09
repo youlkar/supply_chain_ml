@@ -3,6 +3,7 @@ from datetime import datetime
 from pathlib import Path
 
 import joblib
+import json
 import lightgbm as lgb
 import mlflow
 import numpy as np
@@ -168,9 +169,26 @@ def train_model(data_path: str, model_output_dir: str) -> dict:
         finally:
             pass
 
-    return {
+    result = {
         "run_name": run_name,
         "mlflow_run_id": run_id,
         "model_path": str(model_path) if model_path else None,
         "features": FEATURE_COLUMNS,
     }
+    token = os.getenv("MODEL_META_PATH", "latest_model.json")
+    meta_json = model_dir / token
+    import json
+
+    with open(meta_json, "w") as f:
+        json.dump(
+            {
+                "run_name": result["run_name"],
+                "mlflow_run_id": result["mlflow_run_id"],
+                "model_path": result["model_path"],
+                "timestamp": datetime.utcnow().isoformat(),
+            },
+            f,
+            indent=2,
+        )
+
+    return result

@@ -46,3 +46,30 @@ jobs:
 
       - name: Run training pipeline
         run: python backend/ml/pipelines/train_pipeline.py
+
+      - name: Persist model version
+        uses: python-actions/setup-python@v4
+        with:
+          python-version: 3.13
+      - name: Store model_version row
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          MODEL_VERSION_TABLE: model_versions
+        run: |
+          python - <<'PY'
+          import json, os
+          from supabase import create_client
+          artifact_path = "backend/ml/artifacts/latest_model.json"
+          if not os.path.exists(artifact_path):
+              raise SystemExit("latest_model.json missing")
+          data = json.loads(open(artifact_path).read())
+          supabase = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"])
+          supabase.table(os.environ["MODEL_VERSION_TABLE"]).insert({
+              "version_id": data["run_name"],
+              "mlflow_run_id": data["mlflow_run_id"],
+              "model_path": data["model_path"],
+              "created_at": data.get("timestamp")
+          }).on_conflict("version_id").upsert().execute()
+          print("Stored model version", data["run_name"])
+          PY

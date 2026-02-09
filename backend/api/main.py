@@ -6,6 +6,7 @@ from datetime import datetime
 from supabase import create_client, Client
 import uvicorn
 import uuid
+import joblib
 from typing import Any, Dict, List, Optional
 from pathlib import Path
 from dotenv import load_dotenv
@@ -53,6 +54,23 @@ SUPABASE_EDGE_FUNCTION_NAME = os.getenv("SUPABASE_EDGE_FUNCTION_NAME", "ingest_j
 SUPABASE_EDGE_FUNCTION_TIMEOUT_SECS = float(os.getenv("SUPABASE_EDGE_FUNCTION_TIMEOUT_SECS", "1.5"))
 
 MODEL_VERSION_ID = os.getenv("MODEL_VERSION_ID", "demo-v1")
+
+MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI")
+MLFLOW_TRACKING_TOKEN = os.getenv("MLFLOW_TRACKING_TOKEN") or os.getenv("MLFLOW_TRACKING_PASSWORD")
+if not MLFLOW_TRACKING_URI or not MLFLOW_TRACKING_TOKEN:
+    raise RuntimeError("MLFLOW_TRACKING_URI and MLFLOW_TRACKING_TOKEN (or password) must be configured")
+MLFLOW_TRACKING_URI = MLFLOW_TRACKING_URI.strip()
+
+# Keep the latest artifact cached to avoid repeated downloads.
+MODEL_CACHE_DIR = Path(os.getenv("MODEL_CACHE_DIR", "/tmp/supplylens_model_cache"))
+MODEL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+_MODEL_CACHE: Dict[str, Any] = {
+    "version_id": None,
+    "mlflow_run_id": None,
+    "artifact_path": None,
+    "model": None,
+    "cached_path": None,
+}
 
 # Supabase client (admin)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -192,7 +210,9 @@ def _edge_function_url(function_name: str) -> str:
     return f"{SUPABASE_URL}/functions/v1/{function_name}"
 
 
-async def invoke_edge_function_detached(job_id: str, payload: IngestPayload) -> None:
+async def invoke_edge_function_detached(
+    job_id: str, payload: IngestPayload, model_metadata: Optional[Dict[str, str]] = None
+) -> None:
     """
     Truly detached call:
       - Runs in background task
@@ -209,7 +229,9 @@ async def invoke_edge_function_detached(job_id: str, payload: IngestPayload) -> 
         "batch_id": payload.batch_id,
         "storage": payload.storage.dict(),
         "files": [f.dict() for f in payload.files],
-        "model_version_id": MODEL_VERSION_ID,
+        "model_version_id": (model_metadata or {}).get("version_id") or MODEL_VERSION_ID,
+        "mlflow_run_id": (model_metadata or {}).get("mlflow_run_id"),
+        "artifact_path": (model_metadata or {}).get("artifact_path"),
     }
 
     # Option A: Edge function accepts service-role bearer
@@ -252,6 +274,74 @@ async def invoke_edge_function_detached(job_id: str, payload: IngestPayload) -> 
 
     await asyncio.to_thread(_do_call)
 
+def get_latest_model_version():
+    resp = supabase.table("model_versions").select("*").order("created_at", desc=True).limit(1).execute()
+    if not resp.data:
+        raise HTTPException(500, "No trained model available")
+    return resp.data[0]
+
+def fetch_model_artifact(run_id: str, artifact_path: str):
+    headers = {"Authorization": f"Bearer {MLFLOW_TRACKING_TOKEN}"} if MLFLOW_TRACKING_TOKEN else {}
+    url = f"{MLFLOW_TRACKING_URI}/api/2.0/mlflow/artifacts/download?run_id={run_id}&path={artifact_path}"
+    resp = requests.get(url, headers=headers)
+    resp.raise_for_status()
+    return resp.content
+
+
+def _normalize_artifact_path(raw_path: Optional[str]) -> Optional[str]:
+    if not raw_path:
+        return None
+    normalized = raw_path.strip().replace("\\", "/")
+    if "model_artifacts" in normalized:
+        suffix = normalized.split("model_artifacts", 1)[1].lstrip("/\\")
+        if suffix:
+            return f"model_artifacts/{suffix}"
+        return "model_artifacts"
+    filename = Path(normalized).name
+    if not filename:
+        return None
+    return f"model_artifacts/{filename}"
+
+
+def _cache_model_artifact(version_id: str, mlflow_run_id: str, artifact_path: str) -> Dict[str, Any]:
+    global _MODEL_CACHE
+    if (
+        _MODEL_CACHE["version_id"] == version_id
+        and _MODEL_CACHE["mlflow_run_id"] == mlflow_run_id
+        and _MODEL_CACHE["artifact_path"] == artifact_path
+        and _MODEL_CACHE["model"] is not None
+    ):
+        return _MODEL_CACHE
+
+    content = fetch_model_artifact(mlflow_run_id, artifact_path)
+    safe_name = version_id.replace(" ", "_").replace("/", "_")
+    cache_path = MODEL_CACHE_DIR / f"{safe_name or mlflow_run_id}.joblib"
+    cache_path.write_bytes(content)
+    model_obj = joblib.load(cache_path)
+    _MODEL_CACHE = {
+        "version_id": version_id,
+        "mlflow_run_id": mlflow_run_id,
+        "artifact_path": artifact_path,
+        "model": model_obj,
+        "cached_path": str(cache_path),
+    }
+    return _MODEL_CACHE
+
+
+def ensure_model_loaded_for_job() -> Dict[str, Any]:
+    row = get_latest_model_version()
+    version_id = row.get("version_id") or row.get("run_name") or row.get("mlflow_run_id")
+    artifact_raw = row.get("artifact_uri") or row.get("model_path") or row.get("artifact_path")
+    artifact_path = _normalize_artifact_path(artifact_raw)
+    if not version_id or not artifact_path or not row.get("mlflow_run_id"):
+        raise HTTPException(500, "Latest model metadata is incomplete")
+    cached = _cache_model_artifact(version_id, row["mlflow_run_id"], artifact_path)
+    return {
+        "version_id": cached["version_id"],
+        "mlflow_run_id": cached["mlflow_run_id"],
+        "artifact_path": cached["artifact_path"],
+        "cached_path": cached["cached_path"],
+    }
 
 # -----------------------------
 # API ENDPOINTS
@@ -266,12 +356,19 @@ async def ingest_edi(payload: IngestPayload = Body(...)):
       - Return immediately (frontend continues UI)
     """
     _validate_ingest_payload(payload)
+    model_metadata = ensure_model_loaded_for_job()
+    logger.info(
+        "Model %s (run %s) ready from %s",
+        model_metadata["version_id"],
+        model_metadata["mlflow_run_id"],
+        model_metadata["cached_path"],
+    )
 
     job_id = str(uuid.uuid4())
     create_ingest_job_row(job_id, payload)
 
     # Start detached Edge invocation in background
-    asyncio.create_task(invoke_edge_function_detached(job_id, payload))
+    asyncio.create_task(invoke_edge_function_detached(job_id, payload, model_metadata))
 
     # Return immediately; frontend should NOT wait for processing
     return {"job_id": job_id, "status": "QUEUED"}
