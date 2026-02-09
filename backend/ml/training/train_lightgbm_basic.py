@@ -12,6 +12,7 @@ from sklearn.metrics import accuracy_score, f1_score, precision_recall_fscore_su
 from sklearn.model_selection import train_test_split
 from sklearn.multioutput import MultiOutputClassifier
 from sklearn.preprocessing import LabelEncoder
+from typing import Dict
 
 # -----------------------------
 # MLflow (DAGsHub) config
@@ -88,6 +89,7 @@ def train_model(data_path: str, model_output_dir: str) -> dict:
     }
 
     run_name = f"lgbm_multioutput_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    metrics: Dict[str, float] = {}
 
     # We'll set these in the run and return them after the context ends
     run_id = None
@@ -119,6 +121,8 @@ def train_model(data_path: str, model_output_dir: str) -> dict:
 
             acc = accuracy_score(y_true, y_pred)
             macro_f1 = f1_score(y_true, y_pred, average="macro")
+            metrics[f"{name}_accuracy"] = float(acc)
+            metrics[f"{name}_macro_f1"] = float(macro_f1)
 
             mlflow.log_metric(f"{name}_accuracy", float(acc))
             mlflow.log_metric(f"{name}_macro_f1", float(macro_f1))
@@ -130,6 +134,7 @@ def train_model(data_path: str, model_output_dir: str) -> dict:
             for idx, cls_name in enumerate(encoders[i].classes_):
                 clean_name = str(cls_name).replace(" ", "_").replace("&", "and").replace("/", "_")
                 mlflow.log_metric(f"test_f1__{name}__{clean_name}", float(f1s[idx]))
+                metrics[f"test_f1__{name}__{clean_name}"] = float(f1s[idx])
 
         # -----------------------------
         # Save model bundle locally
@@ -160,35 +165,24 @@ def train_model(data_path: str, model_output_dir: str) -> dict:
             },
         }
         meta_path = model_dir / f"model_meta_{run_name}.json"
-        try:
-            import json
+        with open(meta_path, "w") as f:
+            json.dump(meta, f, indent=2)
+        mlflow.log_artifact(str(meta_path), artifact_path="model_artifacts")
 
-            with open(meta_path, "w") as f:
-                json.dump(meta, f, indent=2)
-            mlflow.log_artifact(str(meta_path), artifact_path="model_artifacts")
-        finally:
-            pass
-
+    artifact_path = f"model_artifacts/{model_path.name}" if model_path else None
     result = {
         "run_name": run_name,
         "mlflow_run_id": run_id,
         "model_path": str(model_path) if model_path else None,
+        "artifact_path": artifact_path,
         "features": FEATURE_COLUMNS,
+        "metrics": metrics,
     }
     token = os.getenv("MODEL_META_PATH", "latest_model.json")
     meta_json = model_dir / token
     import json
 
     with open(meta_json, "w") as f:
-        json.dump(
-            {
-                "run_name": result["run_name"],
-                "mlflow_run_id": result["mlflow_run_id"],
-                "model_path": result["model_path"],
-                "timestamp": datetime.utcnow().isoformat(),
-            },
-            f,
-            indent=2,
-        )
+        json.dump(result, f, indent=2)
 
     return result

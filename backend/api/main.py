@@ -288,6 +288,19 @@ def fetch_model_artifact(run_id: str, artifact_path: str):
     return resp.content
 
 
+def _coerce_jsonb(value: Optional[Any]) -> Dict[str, Any]:
+    if not value:
+        return {}
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except Exception:
+            return {}
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
 def _normalize_artifact_path(raw_path: Optional[str]) -> Optional[str]:
     if not raw_path:
         return None
@@ -333,9 +346,11 @@ def ensure_model_loaded_for_job() -> Dict[str, Any]:
     version_id = row.get("version_id") or row.get("run_name") or row.get("mlflow_run_id")
     artifact_raw = row.get("artifact_uri") or row.get("model_path") or row.get("artifact_path")
     artifact_path = _normalize_artifact_path(artifact_raw)
-    if not version_id or not artifact_path or not row.get("mlflow_run_id"):
+    metrics = _coerce_jsonb(row.get("metrics"))
+    mlflow_run_id = row.get("mlflow_run_id") or metrics.get("mlflow_run_id")
+    if not version_id or not artifact_path or not mlflow_run_id:
         raise HTTPException(500, "Latest model metadata is incomplete")
-    cached = _cache_model_artifact(version_id, row["mlflow_run_id"], artifact_path)
+    cached = _cache_model_artifact(version_id, mlflow_run_id, artifact_path)
     return {
         "version_id": cached["version_id"],
         "mlflow_run_id": cached["mlflow_run_id"],

@@ -65,12 +65,14 @@ jobs:
               raise SystemExit("latest_model.json missing")
           data = json.loads(open(artifact_path).read())
           supabase = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"])
+          metrics_payload = data.get("metrics", {}) or {}
+          metrics_payload["mlflow_run_id"] = data["mlflow_run_id"]
           supabase.table(os.environ["MODEL_VERSION_TABLE"]).upsert(
               {
                   "version_id": data["run_name"],
-                  "artifact_uri": data["model_path"],
+                  "artifact_uri": data["artifact_path"],
                   "trained_at": data.get("timestamp"),
-                  "metrics": data.get("metrics", {}),
+                  "metrics": metrics_payload,
                   "deployed_at": None,
               },
               on_conflict="version_id"
