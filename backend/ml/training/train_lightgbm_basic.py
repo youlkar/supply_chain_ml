@@ -180,7 +180,6 @@ def train_model(data_path: str, model_output_dir: str) -> dict:
     }
     token = os.getenv("MODEL_META_PATH", "latest_model.json")
     meta_json = model_dir / token
-    import json
 
     with open(meta_json, "w") as f:
         json.dump(result, f, indent=2)
