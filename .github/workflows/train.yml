@@ -70,7 +70,7 @@ jobs:
                   "version_id": data["run_name"],
                   "artifact_uri": data["model_path"],
                   "trained_at": data.get("timestamp"),
-                  "metrics": {},
+                  "metrics": data.get("metrics", {}),
                   "deployed_at": None,
               },
               on_conflict="version_id"
