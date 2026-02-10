@@ -170,6 +170,12 @@ def train_model(data_path: str, model_output_dir: str) -> dict:
         mlflow.log_artifact(str(meta_path), artifact_path="model_artifacts")
 
     artifact_path = f"model_artifacts/{model_path.name}" if model_path else None
+    trained_at = (
+        datetime.utcfromtimestamp(run.info.start_time / 1000).isoformat() + "Z"
+        if run.info.start_time
+        else datetime.utcnow().isoformat() + "Z"
+    )
+
     result = {
         "run_name": run_name,
         "mlflow_run_id": run_id,
@@ -177,6 +183,7 @@ def train_model(data_path: str, model_output_dir: str) -> dict:
         "artifact_path": artifact_path,
         "features": FEATURE_COLUMNS,
         "metrics": metrics,
+        "timestamp": trained_at,
     }
     token = os.getenv("MODEL_META_PATH", "latest_model.json")
     meta_json = model_dir / token
