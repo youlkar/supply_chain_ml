@@ -20,7 +20,7 @@ from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 # MLflow (DAGsHub) config
 # -----------------------------
 ml_flow_uri = os.getenv("MLFLOW_TRACKING_URI", "https://dagshub.com/youl1/supplylens_ml.mlflow")
-ml_flow_exp = os.getenv("MLFLOW_EXPERIMENT_NAME")
+ml_flow_exp = os.getenv("MLFLOW_EXPERIMENT_NAME", "supply_chain_lightgbm_three_way")
 if not ml_flow_exp:
     raise RuntimeError("MLFLOW_EXPERIMENT_NAME must be set (pass via git secrets).")
 
