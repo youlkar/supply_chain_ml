@@ -90,10 +90,15 @@ def _safe_pct_delta(delta: pd.Series, denom: pd.Series) -> pd.Series:
     return out
 
 
-def load_data(data_path: str) -> pd.DataFrame:
+def load_data(data_path: str) -> Tuple[pd.DataFrame, List[str], List[str], List[str]]:
     if not os.path.exists(data_path):
         raise FileNotFoundError(f"training data not found at {data_path}")
     df = pd.read_csv(data_path)
+
+    # Use local feature lists so we don't mutate module-level globals.
+    base_numeric_features: List[str] = list(NUMERIC_FEATURES)
+    base_categorical_features: List[str] = list(CATEGORICAL_FEATURES)
+    feature_columns: List[str] = base_numeric_features + base_categorical_features
 
     # -----------------------------
     # Derived numeric features (always safe to compute)
@@ -197,7 +202,7 @@ def load_data(data_path: str) -> pd.DataFrame:
     # -----------------------------
     # If your generator hasn't added supplier/timing fields yet, we fill sensible defaults
     # so the pipeline still runs, but we ALSO surface which columns were missing.
-    missing = [c for c in FEATURE_COLUMNS if c not in df.columns]
+    missing = [c for c in feature_columns if c not in df.columns]
 
     # defaults that keep behavior explicit and debuggable
     default_numeric = {
@@ -222,42 +227,42 @@ def load_data(data_path: str) -> pd.DataFrame:
                 f"Missing required feature column '{c}'. Update the generator to include it, or add it to the CSV."
             )
 
-    # If optional engineered columns exist, include them as numeric features.
+    # If optional engineered columns exist, include them as numeric features (locally).
     present_opt = [c for c in OPTIONAL_ENGINEERED_FEATURES if c in df.columns]
-    if present_opt:
-        # extend numeric + feature columns (module-level lists)
-        for c in present_opt:
-            if c not in NUMERIC_FEATURES:
-                NUMERIC_FEATURES.append(c)
-        # refresh global feature columns
-        global FEATURE_COLUMNS
-        FEATURE_COLUMNS = NUMERIC_FEATURES + CATEGORICAL_FEATURES
+    numeric_features: List[str] = list(base_numeric_features)
+    categorical_features: List[str] = list(base_categorical_features)
+
+    for c in present_opt:
+        if c not in numeric_features:
+            numeric_features.append(c)
+
+    feature_columns = numeric_features + categorical_features
 
     # Cast types
-    for c in NUMERIC_FEATURES:
+    for c in numeric_features:
         df[c] = pd.to_numeric(df[c], errors="coerce")
-    for c in CATEGORICAL_FEATURES:
+    for c in categorical_features:
         df[c] = df[c].astype(str)
 
     # Keep a note for training logs/debugging
     df.attrs["missing_feature_columns_filled"] = missing
 
-    return df
+    return df, feature_columns, numeric_features, categorical_features
 
 
 def train_model(data_path: str, model_output_dir: str) -> dict:
-    df = load_data(data_path)
+    df, feature_columns, numeric_features, categorical_features = load_data(data_path)
 
     # Encode target
     le_triage = LabelEncoder()
     y_encoded = le_triage.fit_transform(df[TARGET_COL].astype(str))
 
-    X = df[FEATURE_COLUMNS].copy()
+    X = df[feature_columns].copy()
 
     # Preprocessing: numeric impute + categorical one-hot
     preprocessor = ColumnTransformer(
         transformers=[
-            ("num", Pipeline(steps=[("imputer", SimpleImputer(strategy="median"))]), NUMERIC_FEATURES),
+            ("num", Pipeline(steps=[("imputer", SimpleImputer(strategy="median"))]), numeric_features),
             (
                 "cat",
                 Pipeline(
@@ -266,7 +271,7 @@ def train_model(data_path: str, model_output_dir: str) -> dict:
                         ("ohe", OneHotEncoder(handle_unknown="ignore")),
                     ]
                 ),
-                CATEGORICAL_FEATURES,
+                categorical_features,
             ),
         ],
         remainder="drop",
@@ -336,9 +341,9 @@ def train_model(data_path: str, model_output_dir: str) -> dict:
         mlflow.log_params(
             {
                 "data_path": data_path,
-                "features_count": len(FEATURE_COLUMNS),
-                "numeric_features": len(NUMERIC_FEATURES),
-                "categorical_features": len(CATEGORICAL_FEATURES),
+                "features_count": len(feature_columns),
+                "numeric_features": len(numeric_features),
+                "categorical_features": len(categorical_features),
                 "train_size": len(X_train),
                 "test_size": len(X_test),
                 "missing_features_filled": ",".join(missing_filled) if missing_filled else "",
@@ -454,9 +459,9 @@ def train_model(data_path: str, model_output_dir: str) -> dict:
             {
                 "model": best_model,
                 "triage_encoder": le_triage,
-                "features": FEATURE_COLUMNS,
-                "numeric_features": NUMERIC_FEATURES,
-                "categorical_features": CATEGORICAL_FEATURES,
+                "features": feature_columns,
+                "numeric_features": numeric_features,
+                "categorical_features": categorical_features,
                 "target_col": TARGET_COL,
                 "decision_threshold": float(best_threshold),
             },
@@ -465,9 +470,9 @@ def train_model(data_path: str, model_output_dir: str) -> dict:
         mlflow.log_artifact(str(model_path), artifact_path="model_artifacts")
 
         meta = {
-            "features": FEATURE_COLUMNS,
-            "numeric_features": NUMERIC_FEATURES,
-            "categorical_features": CATEGORICAL_FEATURES,
+            "features": feature_columns,
+            "numeric_features": numeric_features,
+            "categorical_features": categorical_features,
             "target": TARGET_COL,
             "classes": list(le_triage.classes_),
         }
@@ -488,7 +493,7 @@ def train_model(data_path: str, model_output_dir: str) -> dict:
         "mlflow_run_id": run_id,
         "model_path": str(model_path) if model_path else None,
         "artifact_path": artifact_path,
-        "features": FEATURE_COLUMNS,
+        "features": feature_columns,
         "target": TARGET_COL,
         "metrics": metrics,
         "timestamp": trained_at,
